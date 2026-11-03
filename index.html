@@ -273,7 +273,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .gate-box { position: relative; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px; }
 .gate-box h1 { margin: 0; font: 700 34px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; }
 .gate-box h1 span { color: var(--gold); }
-.gate-box input { font: 600 18px var(--mono); letter-spacing: .14em; text-transform: uppercase; text-align: center; }
+.acct { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--gold); font: 600 13px var(--display); letter-spacing: .04em; cursor: pointer; }
+.acct:hover { border-color: var(--gold); }
+.mem { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+.mem b { font-weight: 600; } .mem small { display: block; color: var(--muted); font: 500 11.5px var(--mono); overflow-wrap: anywhere; }
 footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding: 0 16px 20px; }
 @media (max-width: 1099px) { footer.legal { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); } }
 @media (max-width: 560px) { .sess .sp.opt { display: none; } .logo-txt small { display: none; } }
@@ -282,15 +285,41 @@ footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding
 </head>
 <body data-tab="overview">
 
-<div class="gate" id="gate" hidden>
-  <form class="gate-box" id="gateForm" autocomplete="off">
+<div class="gate" id="gate">
+  <div class="gate-box">
     <div class="logo"><span class="logo-mark">F</span><span class="logo-txt">Terminal du F<small>LLS PRO by Le F</small></span></div>
-    <h1>Accès <span>membres</span></h1>
-    <p class="hint">Entre le code d'accès que tu as reçu de Le F.</p>
-    <label for="gateCode">Code d'accès<input id="gateCode" autocapitalize="characters" spellcheck="false" required></label>
-    <button class="btn primary" type="submit">Entrer dans le terminal</button>
-    <p class="hint" id="gateMsg" role="alert"></p>
-  </form>
+    <h1 id="authTitle">Espace <span>membres</span></h1>
+    <p class="hint" id="authLoading">Connexion au service…</p>
+
+    <div id="authForms" hidden>
+      <div class="subnav" style="grid-template-columns:1fr 1fr" role="tablist" aria-label="Compte">
+        <button role="tab" id="aTabIn" aria-selected="true">Connexion</button>
+        <button role="tab" id="aTabUp" aria-selected="false">Créer un compte</button>
+      </div>
+      <form id="fIn" class="view" style="margin-top:14px" autocomplete="on">
+        <label for="inEmail">E-mail<input id="inEmail" type="email" autocomplete="email" required></label>
+        <label for="inPass">Mot de passe<input id="inPass" type="password" autocomplete="current-password" required></label>
+        <button class="btn primary" type="submit">Se connecter</button>
+        <button class="btn ghost small" type="button" id="forgotBtn">Mot de passe oublié ?</button>
+      </form>
+      <form id="fUp" class="view" style="margin-top:14px" autocomplete="on" hidden>
+        <label for="upName">Prénom ou pseudo<input id="upName" autocomplete="nickname" maxlength="40" required></label>
+        <label for="upEmail">E-mail<input id="upEmail" type="email" autocomplete="email" required></label>
+        <label for="upPass">Mot de passe (8 caractères minimum)<input id="upPass" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button class="btn primary" type="submit">Créer mon compte</button>
+        <p class="hint">Ton accès sera activé par Le F après vérification.</p>
+      </form>
+    </div>
+
+    <div id="pending" class="view" hidden>
+      <div class="pills"><span class="pill warn">En attente de validation</span></div>
+      <p class="brief">Ton compte est créé. Le F doit l'activer avant que tu accèdes au terminal. Cette page s'ouvrira toute seule dès que c'est fait.</p>
+      <p class="meta" id="pendingWho"></p>
+      <button class="btn" type="button" id="pendingOut">Se déconnecter</button>
+    </div>
+
+    <p class="hint" id="authMsg" role="alert"></p>
+  </div>
 </div>
 
 <header class="topbar">
@@ -298,6 +327,7 @@ footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding
     <div class="logo"><span class="logo-mark">F</span><span class="logo-txt">Terminal du F<small>LLS PRO by Le F</small></span></div>
     <div class="sess" id="sess" aria-label="Sessions de marché"></div>
     <div class="clock" id="clock" aria-label="Heure de Paris">--:--:--<small>Paris</small></div>
+    <button class="acct" id="acctBtn" aria-label="Mon compte" hidden>·</button>
   </div>
 </header>
 <div class="statusline"><span id="mktAge"><span class="dot"></span>Briefing : chargement…</span><span id="liveState"></span></div>
@@ -501,6 +531,7 @@ footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding
 
 <footer class="legal">Terminal du F · LLS PRO by Le F · Informations à but éducatif, pas un conseil en investissement. Le trading comporte un risque de perte en capital.</footer>
 
+<script src="firebase-config.js"></script>
 <script>
 (() => {
   "use strict";
@@ -571,12 +602,20 @@ footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding
     };
   }
 
+  // Journal du membre : Firestore, users/<uid>/trades/<id>
+  let fb = null, me = null, myProfile = null, iAmAdmin = false;
+  const clean = (o) => { const r = {}; for (const [k, v] of Object.entries(o)) if (v !== undefined) r[k] = (typeof v === "number" && !Number.isFinite(v)) ? null : v; return r; };
   async function initStore() {
-    store = makeLocalStore();
-    const n = $("storeNotice");
-    n.textContent = "Ton journal est enregistré sur cet appareil. Il n'est envoyé nulle part.";
-    n.hidden = false;
-    render();
+    const { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot } = fb;
+    const col = collection(fb.db, "users", me.uid, "trades");
+    onSnapshot(col, (snap) => { trades = snap.docs.map((d) => ({ id: d.id, ...d.data() })); render(); },
+      () => { const n = $("storeNotice"); n.textContent = "La synchronisation du journal s'est arrêtée. Recharge l'appli."; n.hidden = false; });
+    const fail = () => toast("Enregistrement impossible, vérifie ta connexion.");
+    store = {
+      async add(t) { const { id, ...body } = t; try { await setDoc(doc(col, id), clean(body)); } catch (e) { fail(); } },
+      async update(id, patch) { try { await updateDoc(doc(col, id), clean(patch)); } catch (e) { fail(); } },
+      async remove(id) { try { await deleteDoc(doc(col, id)); } catch (e) { fail(); } },
+    };
   }
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -1225,17 +1264,128 @@ footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding
     }
   }
 
-  // ── Code d'accès membres ──
-  // Pour changer le code : remplace ACCESS_HASH par l'empreinte SHA-256 du nouveau code (en majuscules, sans espaces).
-  const ACCESS_HASH = "d332967ebcd7d4c9ec40993c3d2243b8a96e4ecbc386bb940f09257db6ebbb62";
-  const GATE_KEY = "terminal-f-access";
-  async function sha256(t) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join(""); }
-  async function gateOk() { try { return localStorage.getItem(GATE_KEY) === ACCESS_HASH; } catch (e) { return false; } }
-  $("gateForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const h = await sha256($("gateCode").value.trim().toUpperCase().replace(/\s+/g, ""));
-    if (h === ACCESS_HASH) { try { localStorage.setItem(GATE_KEY, h); } catch (err) { /* rien */ } $("gate").hidden = true; start(); }
-    else { $("gateMsg").textContent = "Code incorrect. Demande le code d'accès à Le F."; }
+  // ── Comptes membres (Firebase) ──
+  const FBV = "10.12.2", FBU = "https://www.gstatic.com/firebasejs/" + FBV + "/";
+  const AUTH_ERR = {
+    "auth/invalid-credential": "E-mail ou mot de passe incorrect.", "auth/wrong-password": "E-mail ou mot de passe incorrect.", "auth/user-not-found": "E-mail ou mot de passe incorrect.",
+    "auth/email-already-in-use": "Un compte existe déjà avec cet e-mail. Connecte-toi.", "auth/weak-password": "Mot de passe trop court : 8 caractères minimum.",
+    "auth/invalid-email": "Adresse e-mail invalide.", "auth/too-many-requests": "Trop d'essais. Attends quelques minutes.", "auth/network-request-failed": "Pas de connexion Internet.",
+    "auth/missing-email": "Indique ton e-mail.",
+  };
+  const authErr = (e) => AUTH_ERR[e && e.code] || "Une erreur est survenue, réessaie.";
+  const authMsg = (t) => { $("authMsg").textContent = t || ""; };
+  function gateMode(m) {
+    $("gate").hidden = m === "app";
+    $("authLoading").hidden = m !== "loading" && m !== "config";
+    $("authForms").hidden = m !== "in" && m !== "up";
+    $("pending").hidden = m !== "pending";
+    if (m === "in" || m === "up") {
+      $("fIn").hidden = m !== "in"; $("fUp").hidden = m !== "up";
+      $("aTabIn").setAttribute("aria-selected", m === "in"); $("aTabUp").setAttribute("aria-selected", m === "up");
+    }
+    if (m === "config") $("authLoading").textContent = "Les comptes ne sont pas encore configurés. Le F doit renseigner le fichier firebase-config.js.";
+  }
+  $("aTabIn").addEventListener("click", () => { authMsg(); gateMode("in"); });
+  $("aTabUp").addEventListener("click", () => { authMsg(); gateMode("up"); });
+
+  async function boot() {
+    const cfg = window.FIREBASE_CONFIG;
+    if (!cfg || !cfg.apiKey || /A_REMPLIR/.test(cfg.apiKey)) { gateMode("config"); return; }
+    try {
+      const [A, U, F] = await Promise.all([import(FBU + "firebase-app.js"), import(FBU + "firebase-auth.js"), import(FBU + "firebase-firestore.js")]);
+      const app = A.initializeApp(cfg);
+      const auth = U.getAuth(app); auth.languageCode = "fr";
+      fb = { ...U, ...F, auth, db: F.getFirestore(app) };
+    } catch (e) { $("authLoading").textContent = "Impossible de joindre le service de comptes. Vérifie ta connexion puis recharge."; return; }
+    fb.onAuthStateChanged(fb.auth, (u) => {
+      if (!u) { if (me) { location.reload(); return; } gateMode("in"); return; }
+      me = u; watchProfile();
+    });
+  }
+
+  $("fIn").addEventListener("submit", async (e) => {
+    e.preventDefault(); authMsg("Connexion…");
+    try { await fb.signInWithEmailAndPassword(fb.auth, $("inEmail").value.trim(), $("inPass").value); authMsg(); }
+    catch (err) { authMsg(authErr(err)); }
+  });
+  $("forgotBtn").addEventListener("click", async () => {
+    const em = $("inEmail").value.trim();
+    if (!em) { authMsg("Écris ton e-mail ci-dessus, puis touche « Mot de passe oublié ? »."); return; }
+    try { await fb.sendPasswordResetEmail(fb.auth, em); authMsg("E-mail de réinitialisation envoyé à " + em + " (regarde aussi les spams)."); }
+    catch (err) { authMsg(authErr(err)); }
+  });
+  let pendingName = "";
+  $("fUp").addEventListener("submit", async (e) => {
+    e.preventDefault(); authMsg("Création du compte…");
+    pendingName = $("upName").value.trim().slice(0, 40);
+    try {
+      const cred = await fb.createUserWithEmailAndPassword(fb.auth, $("upEmail").value.trim(), $("upPass").value);
+      try { await fb.updateProfile(cred.user, { displayName: pendingName }); } catch (err) { /* rien */ }
+      authMsg();
+    } catch (err) { authMsg(authErr(err)); }
+  });
+  $("pendingOut").addEventListener("click", () => fb.signOut(fb.auth));
+
+  function watchProfile() {
+    const ref = fb.doc(fb.db, "users", me.uid);
+    fb.getDoc(fb.doc(fb.db, "admins", me.uid)).then((d) => { iAmAdmin = d.exists(); }).catch(() => { iAmAdmin = false; });
+    fb.onSnapshot(ref, async (snap) => {
+      if (!snap.exists()) {
+        try { await fb.setDoc(ref, { name: pendingName || me.displayName || (me.email || "").split("@")[0], email: me.email || "", approved: false, createdAt: fb.serverTimestamp() }); }
+        catch (e) { authMsg("Impossible de créer ton profil. Réessaie plus tard."); }
+        return;
+      }
+      myProfile = snap.data();
+      const nm = myProfile.name || me.email || "?";
+      $("acctBtn").textContent = nm.trim().slice(0, 2).toUpperCase();
+      if (myProfile.approved === true) { gateMode("app"); $("acctBtn").hidden = false; start(); }
+      else {
+        if (started) { location.reload(); return; }
+        $("pendingWho").textContent = "Compte : " + (myProfile.email || "") + " · identifiant " + me.uid;
+        gateMode("pending");
+      }
+    }, () => { authMsg("Accès au profil refusé. Vérifie les règles Firestore."); });
+  }
+
+  // ── Mon compte (+ gestion des membres pour l'admin) ──
+  const LOCAL_KEY = "terminal-f-journal-v1";
+  const localTrades = () => { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]") || []; } catch (e) { return []; } };
+  $("acctBtn").addEventListener("click", () => openAccount());
+  async function openAccount() {
+    const loc = localTrades();
+    let h = '<div class="kv" style="grid-template-columns:1fr"><div class="lv"><b>Nom</b><span>' + esc(myProfile && myProfile.name || "") + '</span></div><div class="lv"><b>E-mail</b><span>' + esc(me.email || "") + '</span></div><div class="lv"><b>Identifiant</b><span style="font-size:11.5px">' + esc(me.uid) + "</span></div></div>" +
+      '<p class="hint">Ton journal est enregistré dans ton compte : tu le retrouves sur tous tes appareils. Personne d\'autre ne le voit.</p>';
+    if (loc.length) h += '<div class="card"><span class="eyebrow">Journal de cet appareil</span><p class="hint">' + loc.length + " trade(s) enregistré(s) sur ce téléphone avant les comptes.</p><button class=\"btn\" id=\"importLocal\">Les ajouter à mon compte</button></div>";
+    h += '<div class="row"><button class="btn" id="resetPass">Changer de mot de passe</button><button class="btn" id="logoutBtn">Se déconnecter</button></div>';
+    if (iAmAdmin) h += '<div class="card"><span class="eyebrow">Membres · administration</span><div id="memList"><p class="hint">Chargement…</p></div></div>';
+    openSheet("Mon compte", h);
+    if (iAmAdmin) loadMembers();
+  }
+  async function loadMembers() {
+    try {
+      const snap = await fb.getDocs(fb.collection(fb.db, "users"));
+      const list = snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => (a.approved === b.approved ? 0 : a.approved ? 1 : -1) || String(a.name).localeCompare(String(b.name)));
+      const pend = list.filter((m) => !m.approved).length;
+      $("memList").innerHTML = '<p class="hint">' + list.length + " membre(s) · " + pend + " en attente</p>" + list.map((m) =>
+        '<div class="mem"><span><b>' + esc(m.name || "—") + "</b> " + (m.approved ? '<span class="pill ok">actif</span>' : '<span class="pill warn">en attente</span>') + "<small>" + esc(m.email || "") + "</small></span>" +
+        (m.uid === me.uid ? "<span class=\"meta\">toi</span>" : '<button class="btn small ' + (m.approved ? "" : "yes") + '" data-mem="' + esc(m.uid) + '" data-on="' + (m.approved ? "0" : "1") + '">' + (m.approved ? "Suspendre" : "Activer") + "</button>") + "</div>").join("");
+    } catch (e) { $("memList").innerHTML = '<p class="hint">Impossible de lire la liste des membres.</p>'; }
+  }
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b || !fb || !me) return;
+    if (b.id === "logoutBtn") { fb.signOut(fb.auth); }
+    else if (b.id === "resetPass") { try { await fb.sendPasswordResetEmail(fb.auth, me.email); toast("E-mail envoyé à " + me.email); } catch (err) { toast(authErr(err)); } }
+    else if (b.id === "importLocal") {
+      b.disabled = true; const loc = localTrades(); let n = 0;
+      for (const t of loc) { if (t && t.id && !trades.some((x) => x.id === t.id)) { await store.add(t); n++; } }
+      try { localStorage.removeItem(LOCAL_KEY); } catch (err) { /* rien */ }
+      toast(n + " trade(s) ajouté(s) à ton compte"); closeSheet();
+    }
+    else if (b.dataset.mem) {
+      b.disabled = true;
+      try { await fb.updateDoc(fb.doc(fb.db, "users", b.dataset.mem), { approved: b.dataset.on === "1" }); loadMembers(); }
+      catch (err) { toast("Action refusée : vérifie que tu es bien admin."); b.disabled = false; }
+    }
   });
 
   let started = false;
@@ -1246,7 +1396,7 @@ footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding
     pollLive().then(() => paintLive()); openWs(); setInterval(() => { if (!ws || ws.readyState !== 1) pollLive(); }, 30000);
     measuredCorr();
   }
-  (async () => { if (await gateOk()) start(); else { $("gate").hidden = false; $("gateCode").focus(); } })();
+  gateMode("loading"); boot();
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 })();
 </script>
