@@ -54,7 +54,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border-bottom: 1px solid var(--line); }
 .topbar-in { height: var(--top); display: flex; align-items: center; gap: 14px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .logo { display: flex; align-items: center; gap: 9px; flex: none; }
-.logo-mark { width: 28px; height: 28px; border: 1.5px solid var(--gold); border-radius: 6px; display: grid; place-items: center; font: 700 17px var(--display); color: var(--pink); }
+.logo-mark { width: 28px; height: 28px; background: var(--gold); border-radius: 4px; display: grid; place-items: center; font: 700 18px var(--display); color: #1a1204; }
 .logo-txt { font: 700 17px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; }
 .logo-txt small { display: block; font: 500 10px/1.3 var(--mono); letter-spacing: .1em; color: var(--gold); }
 .clock { font: 600 15px var(--mono); font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
@@ -602,7 +602,7 @@ footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding
       '<div class="meta">' + src + " · " + when(t.createdAt) + (t.size ? " · " + esc(t.size) : "") + "</div>";
   }
   function card(t, body) {
-    return '<article class="card trade ' + (t.dir === 1 ? "buy" : "sell") + '" data-id="' + esc(t.id) + '">' + head(t) + levels(t) + (t.note ? '<div class="meta">📝 ' + esc(t.note) + "</div>" : "") + body + "</article>";
+    return '<article class="card trade ' + (t.dir === 1 ? "buy" : "sell") + '" data-id="' + esc(t.id) + '">' + head(t) + levels(t) + (t.note ? '<div class="meta">Note : ' + esc(t.note) + "</div>" : "") + body + "</article>";
   }
 
   function renderTodo() {
@@ -1061,7 +1061,7 @@ footer.legal { color: var(--dim); font-size: 11.5px; text-align: center; padding
     $("agenda").innerHTML = html || '<div class="empty"><strong>Pas d\'annonce chargée</strong>Le calendrier arrive avec le briefing.</div>';
     // Alerte : annonce à fort impact dans les 3 h (ou il y a moins de 15 min)
     const hot = agendaItems().find((e) => e.impact === "fort" && e.ms > Date.now() - 15 * 60000 && e.ms < Date.now() + 3 * 3600000);
-    $("newsAlert").innerHTML = hot ? '<div class="warnbox"><strong>⚠ ' + esc(hot.title) + " " + countdown(hot.ms) + "</strong> (" + hm(hot.ms) + "). Évite d'ouvrir un trade dans les 15 minutes avant et après : spread et mèches imprévisibles.</div>" : "";
+    $("newsAlert").innerHTML = hot ? '<div class="warnbox"><strong>Annonce majeure · ' + esc(hot.title) + " " + countdown(hot.ms) + "</strong> (" + hm(hot.ms) + "). Évite d'ouvrir un trade dans les 15 minutes avant et après : spread et mèches imprévisibles.</div>" : "";
   }
 
   // ── News, briefing, fraîcheur ──
